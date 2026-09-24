@@ -1,0 +1,6 @@
+{
+  "name": "MediBridge: Clinical Multilingual Prescription Decoder, Wearable Health Sentinel & Smart Medication Scheduler",
+  "description": "Clinical Multilingual Prescription Decoder, Wearable Health Sentinel & Smart Medication Scheduler with Human-in-the-Loop review, Tamil voice support, drug interaction checks, and BLE vitals correlation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
