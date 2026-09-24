@@ -18,6 +18,9 @@ import {
   Sparkles,
   FileText,
   AlertCircle,
+  AlertTriangle,
+  Loader2,
+  X,
   Image as ImageIcon,
 } from 'lucide-react';
 import { Language, PrescribedDrug, PatientInfo, ClinicalPreset } from '../types/clinical';
@@ -31,11 +34,14 @@ interface Page1ScanProps {
   onPatientChange: (patient: PatientInfo) => void;
   drugs: PrescribedDrug[];
   onDrugsChange: (drugs: PrescribedDrug[]) => void;
-  onCustomImageUpload: (file: File) => void;
+  onCustomImageUpload: (file: File) => void | Promise<void>;
   onNavigateNext: () => void;
   onSelectPreset?: (presetId: string) => void;
   activePresetId?: string;
   presetImage?: string;
+  isScanning?: boolean;
+  scanError?: string | null;
+  onClearScanError?: () => void;
 }
 
 export const Page1Scan: React.FC<Page1ScanProps> = ({
@@ -49,6 +55,9 @@ export const Page1Scan: React.FC<Page1ScanProps> = ({
   onSelectPreset,
   activePresetId,
   presetImage,
+  isScanning = false,
+  scanError = null,
+  onClearScanError,
 }) => {
   const t = TRANSLATIONS[language];
   const [showDocPreview, setShowDocPreview] = useState(false);
@@ -85,6 +94,7 @@ export const Page1Scan: React.FC<Page1ScanProps> = ({
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       onCustomImageUpload(e.target.files[0]);
+      e.target.value = '';
     }
   };
 
@@ -118,6 +128,59 @@ export const Page1Scan: React.FC<Page1ScanProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Live AI Vision Scanning Spinner Banner */}
+      {isScanning && (
+        <div className="bg-emerald-50 border border-emerald-300 rounded-xl sm:rounded-2xl p-4 sm:p-5 text-emerald-950 flex items-center gap-3.5 shadow-sm animate-pulse">
+          <Loader2 className="w-6 h-6 text-emerald-600 animate-spin shrink-0" />
+          <div>
+            <h4 className="text-xs sm:text-sm font-bold text-emerald-900 flex items-center gap-1.5">
+              <span>🔍 Gemini 1.5 Flash is reading medicine labels & handwriting...</span>
+            </h4>
+            <p className="text-[11px] sm:text-xs text-emerald-700 mt-0.5">
+              Extracting medicine names, dosages, frequencies, and pill counts with multi-modal AI vision
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Realistic Fallback Error Alert Banner */}
+      {!isScanning && scanError && (
+        <div className="bg-amber-50 border border-amber-300 rounded-xl sm:rounded-2xl p-4 text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs animate-fadeIn">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <h4 className="text-xs sm:text-sm font-bold text-amber-900">
+                {language === 'ta' ? 'மருந்து விவரங்களை அடையாளம் காண முடியவில்லை' : 'Unable to Detect Medicine Text Clearly'}
+              </h4>
+              <p className="text-xs text-amber-800 mt-0.5 leading-relaxed">
+                {scanError}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+            <button
+              onClick={() => {
+                setEditingMedicine(null);
+                setIsMedicineModalOpen(true);
+              }}
+              className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>+ Add Medicine Manually</span>
+            </button>
+            {onClearScanError && (
+              <button
+                onClick={onClearScanError}
+                className="p-1.5 rounded-lg text-amber-700 hover:bg-amber-100 transition-colors cursor-pointer"
+                title="Dismiss"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Patient Card: Displays "No Patient Selected" OR patient details with Edit button */}
       <div className="bg-white rounded-xl sm:rounded-2xl border border-slate-200 p-3.5 sm:p-4 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -225,7 +288,7 @@ export const Page1Scan: React.FC<Page1ScanProps> = ({
             <p className="text-xs text-slate-500 mt-1">
               {language === 'ta'
                 ? 'கேமரா மூலம் நேரடியாக படம் எடுக்கலாம் அல்லது PDF / JPG கோப்பை பதிவேற்றலாம்'
-                : 'High-res camera capture or instant image & PDF file upload'}
+                : 'High-res camera capture or instant image & PDF file upload with live Gemini Vision'}
             </p>
           </div>
 
@@ -233,7 +296,8 @@ export const Page1Scan: React.FC<Page1ScanProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
             <button
               onClick={() => cameraInputRef.current?.click()}
-              className="flex items-center justify-center gap-2 py-2.5 sm:py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white text-xs sm:text-sm font-bold shadow-sm shadow-emerald-600/20 transition-all cursor-pointer"
+              disabled={isScanning}
+              className="flex items-center justify-center gap-2 py-2.5 sm:py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white text-xs sm:text-sm font-bold shadow-sm shadow-emerald-600/20 transition-all cursor-pointer disabled:opacity-50"
             >
               <Camera className="w-4 h-4" />
               <span>{language === 'ta' ? 'கேமரா திறக்க' : 'Snap Prescription'}</span>
@@ -241,7 +305,8 @@ export const Page1Scan: React.FC<Page1ScanProps> = ({
 
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="flex items-center justify-center gap-2 py-2.5 sm:py-3 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-white text-xs sm:text-sm font-bold shadow-sm transition-all cursor-pointer"
+              disabled={isScanning}
+              className="flex items-center justify-center gap-2 py-2.5 sm:py-3 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-white text-xs sm:text-sm font-bold shadow-sm transition-all cursor-pointer disabled:opacity-50"
             >
               <FileText className="w-4 h-4 text-emerald-400" />
               <span>{language === 'ta' ? 'கோப்பு பதிவேற்ற' : 'Browse File / PDF'}</span>
@@ -258,7 +323,7 @@ export const Page1Scan: React.FC<Page1ScanProps> = ({
               className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded-xl border border-emerald-200 transition-colors cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>{language === 'ta' ? 'மருந்தை நேரடியாகச் சேர்க்க' : 'Add Medicine Manually'}</span>
+              <span>{language === 'ta' ? 'மருந்தை நேரடியாகச் சேர்க்க' : '+ Add Medicine Manually'}</span>
             </button>
 
             {presetImage && (
@@ -305,26 +370,23 @@ export const Page1Scan: React.FC<Page1ScanProps> = ({
                 setEditingMedicine(null);
                 setIsMedicineModalOpen(true);
               }}
-              className="inline-flex items-center gap-1 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl shadow-xs transition-colors cursor-pointer"
+              className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold transition-colors cursor-pointer border border-emerald-200"
             >
-              <Plus className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Add Medicine Manually</span>
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Medicine</span>
             </button>
           </div>
         </div>
 
-        {/* Empty State when no drugs exist */}
         {drugs.length === 0 ? (
-          <div className="bg-white rounded-xl sm:rounded-2xl border border-slate-200 p-8 text-center space-y-3 shadow-xs">
+          <div className="bg-white border border-slate-200 rounded-xl sm:rounded-2xl p-8 text-center space-y-3">
             <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
               <Pill className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="text-sm sm:text-base font-bold text-slate-800">
-                No Prescription Uploaded Yet
-              </h3>
-              <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1">
-                Take a photo or upload an image to decode your medicines, or click below to add a medicine manually.
+              <h3 className="text-sm font-bold text-slate-700">No Medications Added Yet</h3>
+              <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+                Snap or upload a doctor prescription above, or tap "+ Add Medicine Manually" to pick from common medicines like Dolo 650, Metformin 500, or Azithral 500.
               </p>
             </div>
             <button
@@ -335,16 +397,15 @@ export const Page1Scan: React.FC<Page1ScanProps> = ({
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
             >
               <Plus className="w-4 h-4" />
-              <span>Add Medicine Manually</span>
+              <span>+ Add Medicine Manually</span>
             </button>
           </div>
         ) : (
-          /* Clean Mobile-Friendly Medicine Cards with Edit and Delete */
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
             {drugs.map((drug) => (
               <div
                 key={drug.id}
-                className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-xs hover:border-emerald-300 transition-all flex flex-col justify-between gap-2.5"
+                className="bg-white rounded-xl sm:rounded-2xl border border-slate-200 p-3.5 sm:p-4 shadow-sm hover:border-emerald-300 transition-all flex flex-col justify-between gap-3"
               >
                 <div>
                   <div className="flex items-start justify-between gap-2">

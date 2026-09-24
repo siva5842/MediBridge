@@ -22,6 +22,10 @@ import {
 import { wearableService } from './services/bluetoothService';
 import { storageService } from './services/storageService';
 import { soundAndVoice } from './services/speechService';
+import {
+  decodePrescriptionWithGemini,
+  generateAlarmsFromDrugs,
+} from './services/prescriptionDecoderService';
 import { HeartPulse } from 'lucide-react';
 
 export default function App() {
@@ -62,6 +66,8 @@ export default function App() {
   const [interactions, setInteractions] = useState<DrugInteraction[]>([]);
   const [prescriptionImage, setPrescriptionImage] = useState<string | undefined>(undefined);
   const [activePresetId, setActivePresetId] = useState<string | undefined>(undefined);
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
 
   // 6. Wearable Telemetry (persisted to 'medibridge_wearable' via wearableService)
   const [telemetry, setTelemetry] = useState<WearableTelemetry>(() =>
@@ -130,89 +136,62 @@ export default function App() {
     setInteractions(detectedInteractions);
   }, [drugs]);
 
-  // Handle Prescription Image / Camera Upload (Simulate AI Clinical Decoding)
-  const handleCustomImageUpload = (file: File) => {
-    const objectUrl = URL.createObjectURL(file);
-    setPrescriptionImage(objectUrl);
+  // Handle Prescription Image / Camera Upload (Live Gemini 1.5 Flash Vision Decoding)
+  const handleCustomImageUpload = async (file: File) => {
+    try {
+      const objectUrl = URL.createObjectURL(file);
+      setPrescriptionImage(objectUrl);
+      setIsScanning(true);
+      setScanError(null);
 
-    // If no patient entered yet, default to extracted scan info
-    if (!patient.name) {
-      setPatient({
-        name: 'Patient (Decoded Rx)',
-        age: '45',
-        gender: 'Male',
-        doctorName: 'Attending Physician, MD',
-        doctorSpecialty: 'General Medicine',
-        date: 'Today',
-      });
-    }
+      const result = await decodePrescriptionWithGemini(file);
 
-    // Decode sample extracted drugs from the uploaded image if none exist
-    if (drugs.length === 0) {
-      const decodedDrugs: PrescribedDrug[] = [
-        {
-          id: `drug-${Date.now()}-1`,
-          name: 'Amoxicillin',
-          genericName: 'Amoxicillin Trihydrate',
-          strength: '500mg',
-          dosageForm: 'Capsule',
-          morning: true,
-          afternoon: false,
-          night: true,
-          foodRelation: 'after_meal',
-          durationDays: 7,
-          totalPillsPrescribed: 14,
-          remainingPills: 14,
-          confidenceScore: 99.2,
-          clinicalNoteEn: 'Decoded from uploaded prescription scan.',
-          clinicalNoteTa: 'பதிவேற்றப்பட்ட மருந்துச் சீட்டிலிருந்து பெறப்பட்டது.',
-          verifiedByHuman: false,
-        },
-        {
-          id: `drug-${Date.now()}-2`,
-          name: 'Paracetamol',
-          genericName: 'Acetaminophen',
-          strength: '650mg',
-          dosageForm: 'Tablet',
-          morning: true,
-          afternoon: false,
-          night: true,
-          foodRelation: 'after_meal',
-          durationDays: 5,
-          totalPillsPrescribed: 10,
-          remainingPills: 10,
-          confidenceScore: 98.7,
-          clinicalNoteEn: 'Decoded from uploaded prescription scan.',
-          clinicalNoteTa: 'பதிவேற்றப்பட்ட மருந்துச் சீட்டிலிருந்து பெறப்பட்டது.',
-          verifiedByHuman: false,
-        },
-      ];
-      setDrugs(decodedDrugs);
+      if (result.success && result.medications.length > 0) {
+        setDrugs(result.medications);
+        setScanError(null);
 
-      // Auto-generate dose alarms for the decoded drugs
-      const generatedAlarms: ScheduledAlarm[] = [
-        {
-          id: `alarm-${Date.now()}-1`,
-          drugId: decodedDrugs[0].id,
-          drugName: decodedDrugs[0].name,
-          dosage: decodedDrugs[0].strength,
-          timeSlot: 'Morning',
-          time: '08:00 AM',
-          foodRelation: 'after_meal',
-          enabled: true,
-        },
-        {
-          id: `alarm-${Date.now()}-2`,
-          drugId: decodedDrugs[0].id,
-          drugName: decodedDrugs[0].name,
-          dosage: decodedDrugs[0].strength,
-          timeSlot: 'Night',
-          time: '08:30 PM',
-          foodRelation: 'after_meal',
-          enabled: true,
-        },
-      ];
-      setAlarms(generatedAlarms);
+        // Update patient demographics if detected in the document
+        if (result.patient && result.patient.name) {
+          setPatient((prev) => ({
+            ...prev,
+            name: result.patient?.name || prev.name,
+            age: result.patient?.age || prev.age,
+            gender: (result.patient?.gender as any) || prev.gender,
+            doctorName: result.patient?.doctorName || prev.doctorName,
+            doctorSpecialty: result.patient?.doctorSpecialty || prev.doctorSpecialty,
+            date: result.patient?.date || prev.date,
+          }));
+        } else if (!patient.name) {
+          setPatient({
+            name: 'Patient (Decoded Rx)',
+            age: '45',
+            gender: 'Male',
+            doctorName: 'Attending Physician, MD',
+            doctorSpecialty: 'General Medicine',
+            date: new Date().toLocaleDateString(),
+          });
+        }
+
+        // Auto-generate dose alarms from the decoded drugs
+        const generatedAlarms = generateAlarmsFromDrugs(result.medications);
+        if (generatedAlarms.length > 0) {
+          setAlarms(generatedAlarms);
+        }
+      } else {
+        // Fallback when not readable or no medications found:
+        // Do NOT return Amoxicillin! Show friendly alert banner
+        setScanError(
+          result.error ||
+            '⚠️ Could not clearly detect medicine text. Please hold the camera closer or tap "+ Add Medicine Manually" to type the name.'
+        );
+      }
+    } catch (err: any) {
+      console.error('Prescription processing error:', err);
+      setScanError(
+        '⚠️ Could not clearly detect medicine text. Please hold the camera closer or tap "+ Add Medicine Manually" to type the name.'
+      );
+    } finally {
+      setIsScanning(false);
     }
   };
 
@@ -291,6 +270,8 @@ export default function App() {
   const handleResetAllData = () => {
     storageService.clearAllData();
     wearableService.disconnect();
+    setIsScanning(false);
+    setScanError(null);
     setPatient({
       name: '',
       age: '',
@@ -333,6 +314,9 @@ export default function App() {
             onSelectPreset={handleSelectPreset}
             activePresetId={activePresetId}
             presetImage={prescriptionImage}
+            isScanning={isScanning}
+            scanError={scanError}
+            onClearScanError={() => setScanError(null)}
           />
         )}
 
