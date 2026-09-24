@@ -20,32 +20,51 @@ import {
   DrugInteraction,
 } from './types/clinical';
 import { wearableService } from './services/bluetoothService';
+import { storageService } from './services/storageService';
 import { soundAndVoice } from './services/speechService';
 import { HeartPulse } from 'lucide-react';
 
 export default function App() {
-  const [language, setLanguage] = useState<Language>('en');
-  // 4 Dedicated Pages Navigation State: 'scan' | 'dosage' | 'reminders' | 'vitals'
-  const [currentPage, setCurrentPage] = useState<AppPage>('scan');
-
-  // CLEAN, EMPTY STATE BY DEFAULT (No hardcoded patient, doctor, or fake pre-seeded medicines)
-  const [patient, setPatient] = useState<PatientInfo>({
-    name: '',
-    age: '',
-    gender: 'Male',
-    doctorName: '',
-    doctorSpecialty: '',
-    date: '',
+  // 1. Language State (persisted to localStorage)
+  const [language, setLanguage] = useState<Language>(() => {
+    return storageService.loadLanguage() || 'en';
   });
 
-  const [drugs, setDrugs] = useState<PrescribedDrug[]>([]);
-  const [alarms, setAlarms] = useState<ScheduledAlarm[]>([]);
+  // 2. 4 Dedicated Pages Navigation State (persisted to localStorage)
+  const [currentPage, setCurrentPage] = useState<AppPage>(() => {
+    return (storageService.loadActivePage() as AppPage) || 'scan';
+  });
+
+  // 3. Patient & Doctor Details (persisted to 'medibridge_patient_data')
+  const [patient, setPatient] = useState<PatientInfo>(() => {
+    return (
+      storageService.loadPatient() || {
+        name: '',
+        age: '',
+        gender: 'Male',
+        doctorName: '',
+        doctorSpecialty: '',
+        date: '',
+      }
+    );
+  });
+
+  // 4. Decoded & Added Prescriptions (persisted to 'medibridge_prescriptions' and 'medibridge_inventory')
+  const [drugs, setDrugs] = useState<PrescribedDrug[]>(() => {
+    return storageService.loadPrescriptions() || [];
+  });
+
+  // 5. Scheduled Reminders & Dose Alarms (persisted to 'medibridge_reminders')
+  const [alarms, setAlarms] = useState<ScheduledAlarm[]>(() => {
+    return storageService.loadReminders() || [];
+  });
+
   const [interactions, setInteractions] = useState<DrugInteraction[]>([]);
   const [prescriptionImage, setPrescriptionImage] = useState<string | undefined>(undefined);
   const [activePresetId, setActivePresetId] = useState<string | undefined>(undefined);
 
-  // Wearable Telemetry (Starts disconnected with zero vitals)
-  const [telemetry, setTelemetry] = useState<WearableTelemetry>(
+  // 6. Wearable Telemetry (persisted to 'medibridge_wearable' via wearableService)
+  const [telemetry, setTelemetry] = useState<WearableTelemetry>(() =>
     wearableService.getTelemetry()
   );
   const [activeTestAlarm, setActiveTestAlarm] = useState<ScheduledAlarm | null>(null);
@@ -58,7 +77,34 @@ export default function App() {
     return unsub;
   }, []);
 
-  // Check for drug interactions whenever drugs change
+  // --- AUTOMATIC LOCALSTORAGE SYNCHRONIZATION ---
+
+  // Auto-save Patient & Doctor Details
+  useEffect(() => {
+    storageService.savePatient(patient);
+  }, [patient]);
+
+  // Auto-save Prescriptions & Pill Inventory Counts
+  useEffect(() => {
+    storageService.savePrescriptions(drugs);
+  }, [drugs]);
+
+  // Auto-save Scheduled Reminders & Dose Alarms
+  useEffect(() => {
+    storageService.saveReminders(alarms);
+  }, [alarms]);
+
+  // Auto-save Language Preference
+  useEffect(() => {
+    storageService.saveLanguage(language);
+  }, [language]);
+
+  // Auto-save Active Navigation Page
+  useEffect(() => {
+    storageService.saveActivePage(currentPage);
+  }, [currentPage]);
+
+  // --- DRUG INTERACTIONS CHECK ---
   useEffect(() => {
     const detectedInteractions: DrugInteraction[] = [];
     const hasAspirin = drugs.some((d) => d.name.toLowerCase().includes('aspirin'));
@@ -241,15 +287,36 @@ export default function App() {
     setAlarms((prev) => prev.filter((a) => a.id !== id));
   };
 
+  // Reset All Local Data to start fresh
+  const handleResetAllData = () => {
+    storageService.clearAllData();
+    wearableService.disconnect();
+    setPatient({
+      name: '',
+      age: '',
+      gender: 'Male',
+      doctorName: '',
+      doctorSpecialty: '',
+      date: '',
+    });
+    setDrugs([]);
+    setAlarms([]);
+    setInteractions([]);
+    setPrescriptionImage(undefined);
+    setActivePresetId(undefined);
+    setCurrentPage('scan');
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-['Plus_Jakarta_Sans'] antialiased">
-      {/* Clean Pinned Top Navigation Bar & Telemetry Status */}
+      {/* Clean Pinned Top Navigation Bar & Database Status */}
       <Header
         language={language}
         onLanguageChange={setLanguage}
         telemetry={telemetry}
         currentPage={currentPage}
         onPageChange={setCurrentPage}
+        onResetAllData={handleResetAllData}
       />
 
       {/* Main Single Page Workspace (Displays ONLY the active page) */}
@@ -303,21 +370,21 @@ export default function App() {
       </main>
 
       {/* Modern Light Medical Footer (Desktop only, hidden behind mobile bottom nav) */}
-      <footer className="hidden sm:block border-t border-slate-200 bg-white py-6 text-center text-xs text-slate-500">
+      <footer className="hidden sm:block border-t border-slate-200 bg-white py-5 text-center text-xs text-slate-500">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-slate-600 font-semibold">
             <HeartPulse className="w-4 h-4 text-emerald-600" />
             <span>MediBridge Clinical Multilingual Sentinel</span>
             <span>·</span>
-            <span>Apple Health Light Aesthetic</span>
+            <span>Persistent Local Storage Synchronized</span>
           </div>
 
           <div className="flex items-center gap-4 text-slate-400 text-[11px]">
-            <span>Web Bluetooth API</span>
+            <span>Web Bluetooth BLE</span>
             <span>·</span>
             <span>SpeechSynthesis English & தமிழ்</span>
             <span>·</span>
-            <span>Pharmacopeia Cross-Checked</span>
+            <span>Offline-Ready Local Database</span>
           </div>
         </div>
       </footer>

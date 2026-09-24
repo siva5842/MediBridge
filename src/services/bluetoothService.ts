@@ -1,9 +1,11 @@
 /**
  * Web Bluetooth and Wearable Telemetry Service
- * Connects to smartwatches / BLE bands with real Web Bluetooth API & explicit Demo Simulation mode
+ * Connects to smartwatches / BLE bands with real Web Bluetooth API, explicit Demo Simulation mode,
+ * and automatic persistent storage in localStorage ('medibridge_wearable').
  */
 
 import { WearableTelemetry } from '../types/clinical';
+import { storageService, SavedWearableState } from './storageService';
 
 export interface BluetoothConnectionResult {
   success: boolean;
@@ -16,8 +18,9 @@ export interface BluetoothConnectionResult {
 class WearableBluetoothService {
   private device: any = null;
   private telemetrySubscribers: ((telemetry: WearableTelemetry) => void)[] = [];
+  private isSimulatedMode = false;
 
-  // App starts with ZERO vitals and isConnected = false
+  // App starts with ZERO vitals and isConnected = false unless previously saved
   private currentTelemetry: WearableTelemetry = {
     heartRate: 0,
     systolicBP: 0,
@@ -35,7 +38,43 @@ class WearableBluetoothService {
   private intervalId: any = null;
 
   constructor() {
+    this.loadFromStorage();
     this.startTelemetryHeartbeat();
+  }
+
+  private loadFromStorage() {
+    const saved = storageService.loadWearableState();
+    if (saved && saved.isConnected) {
+      this.isSimulatedMode = saved.isSimulated;
+      this.currentTelemetry = {
+        heartRate: saved.heartRate || 74,
+        systolicBP: saved.systolicBP || 135,
+        diastolicBP: saved.diastolicBP || 88,
+        spO2: saved.spO2 || 98,
+        hrv: 48,
+        bodyTemp: 36.8,
+        isConnected: true,
+        deviceName: saved.deviceName || 'Bluetooth Health Band',
+        batteryLevel: saved.batteryLevel || 90,
+        lastSyncTime: 'Restored from storage',
+        hapticActive: true,
+      };
+    }
+  }
+
+  private persist() {
+    const state: SavedWearableState = {
+      isConnected: this.currentTelemetry.isConnected,
+      isSimulated: this.isSimulatedMode,
+      deviceName: this.currentTelemetry.deviceName,
+      heartRate: this.currentTelemetry.heartRate,
+      systolicBP: this.currentTelemetry.systolicBP,
+      diastolicBP: this.currentTelemetry.diastolicBP,
+      spO2: this.currentTelemetry.spO2,
+      batteryLevel: this.currentTelemetry.batteryLevel,
+      lastSyncTime: this.currentTelemetry.lastSyncTime,
+    };
+    storageService.saveWearableState(state);
   }
 
   public getTelemetry(): WearableTelemetry {
@@ -64,6 +103,8 @@ class WearableBluetoothService {
 
     if (!nav || !nav.bluetooth || typeof nav.bluetooth.requestDevice !== 'function') {
       this.currentTelemetry.isConnected = false;
+      this.isSimulatedMode = false;
+      this.persist();
       this.notify();
       return {
         success: false,
@@ -79,6 +120,7 @@ class WearableBluetoothService {
 
       this.device = device;
       const deviceName = device.name || 'Bluetooth Health Band';
+      this.isSimulatedMode = false;
 
       // Connect GATT if available
       try {
@@ -102,6 +144,7 @@ class WearableBluetoothService {
         lastSyncTime: 'Just now',
         hapticActive: true,
       };
+      this.persist();
       this.notify();
 
       return {
@@ -113,6 +156,8 @@ class WearableBluetoothService {
     } catch (err: any) {
       // User cancelled or no device found - DO NOT show vitals!
       this.currentTelemetry.isConnected = false;
+      this.isSimulatedMode = false;
+      this.persist();
       this.notify();
       return {
         success: false,
@@ -126,6 +171,7 @@ class WearableBluetoothService {
    * Only called when the user explicitly clicks [ 🧪 Start Demo Simulation Mode ].
    */
   public startDemoSimulation(): BluetoothConnectionResult {
+    this.isSimulatedMode = true;
     this.currentTelemetry = {
       heartRate: 74,
       systolicBP: 135,
@@ -139,6 +185,7 @@ class WearableBluetoothService {
       lastSyncTime: 'Just now',
       hapticActive: true,
     };
+    this.persist();
     this.notify();
 
     return {
@@ -161,6 +208,7 @@ class WearableBluetoothService {
       }
     }
     this.device = null;
+    this.isSimulatedMode = false;
     this.currentTelemetry = {
       heartRate: 0,
       systolicBP: 0,
@@ -174,6 +222,7 @@ class WearableBluetoothService {
       lastSyncTime: 'Disconnected',
       hapticActive: false,
     };
+    this.persist();
     this.notify();
   }
 
@@ -195,6 +244,7 @@ class WearableBluetoothService {
         heartRate: newHR,
         spO2: newSpO2,
       };
+      this.persist();
       this.notify();
     }, 3500);
   }
